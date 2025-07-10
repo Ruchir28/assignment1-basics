@@ -161,3 +161,7 @@ cython_debug/
 
 .ruff_cache/
 *.zip
+
+cs336_basics/data/*
+cs336_basics/bpe_tokenizer/tinystories_tokenizer/*
+.DS_Store
