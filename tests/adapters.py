@@ -7,20 +7,22 @@ from jaxtyping import Float, Int
 
 import numpy.typing as npt
 import torch
-from torch import Tensor
 
 from cs336_basics.bpe_tokenizer.bpe import BPETokenizer
+from cs336_basics.transformer_layers.CausalMultiHeadAttention import CausalMultiHeadAttention
 from cs336_basics.transformer_layers.Linear import Linear
 from cs336_basics.transformer_layers.Embedding import Embedding
 from cs336_basics.transformer_layers.RmsNorm import RMSNorm
 from cs336_basics.transformer_layers.SwigluFFN import SwigluFFN
 from cs336_basics.transformer_layers.RoPE import RoPE
+from cs336_basics.transformer_layers.utils import scaled_dot_product_attention, softmax
+from cs336_basics.transformer_layers.Transformer import TransFormer
 
 
 def run_linear(
     d_in: int,
     d_out: int,
-    weights: Float[Tensor, " d_out d_in"],
+    weights: Float[torch.Tensor, " d_out d_in"],
     in_features: Float[Tensor, " ... d_in"],
 ) -> Float[Tensor, " ... d_out"]:
     """
@@ -132,7 +134,7 @@ def run_scaled_dot_product_attention(
     Returns:
         Float[Tensor, " ... queries d_v"]: Output of SDPA
     """
-    raise NotImplementedError
+    return scaled_dot_product_attention(Q,K,V,mask)
 
 
 def run_multihead_self_attention(
@@ -166,8 +168,22 @@ def run_multihead_self_attention(
         Float[Tensor, " ... sequence_length d_out"]: Tensor with the output of running your optimized, batched multi-headed attention
         implementation with the given QKV projection weights and input features.
     """
-    raise NotImplementedError
+    causal_multi_head_attention = CausalMultiHeadAttention(d_model,num_heads)
 
+    state_dict = {
+        'q_proj.weight': q_proj_weight,
+        'k_proj.weight': k_proj_weight,
+        'v_proj.weight': v_proj_weight,
+        'o_proj.weight': o_proj_weight
+    }
+
+    causal_multi_head_attention.load_state_dict(state_dict, strict=False)
+
+    mask = torch.tril(torch.ones(in_features.shape[-2],in_features.shape[-2]),diagonal=0)
+    mask = mask.bool()
+    mask = mask.unsqueeze(0).unsqueeze(0)
+
+    return causal_multi_head_attention.forward(in_features,mask)
 
 def run_multihead_self_attention_with_rope(
     d_model: int,
@@ -206,7 +222,22 @@ def run_multihead_self_attention_with_rope(
         Float[Tensor, " ... sequence_length d_out"]: Tensor with the output of running your optimized, batched multi-headed attention
         implementation with the given QKV projection weights and input features.
     """
-    raise NotImplementedError
+    causal_multi_head_attention = CausalMultiHeadAttention(d_model,num_heads,rope_enabled=True,theta=theta,max_seq_len=max_seq_len)
+    
+    state_dict = {
+        'q_proj.weight': q_proj_weight,
+        'k_proj.weight': k_proj_weight,
+        'v_proj.weight': v_proj_weight,
+        'o_proj.weight': o_proj_weight
+    }
+
+    causal_multi_head_attention.load_state_dict(state_dict, strict=False)
+    
+    mask = torch.tril(torch.ones(in_features.shape[-2],in_features.shape[-2]),diagonal=0)
+    mask = mask.bool()
+    mask = mask.unsqueeze(0).unsqueeze(0)
+    
+    return causal_multi_head_attention.forward(in_features,mask,token_positions)
 
 
 def run_rope(
@@ -303,7 +334,29 @@ def run_transformer_block(
         Float[Tensor, "batch sequence_length d_model"] Tensor with the output of
         running the Transformer block on the input features while using RoPE.
     """
-    raise NotImplementedError
+    transformer_block = TransFormer(d_model, num_heads, d_ff, max_seq_len, theta)
+    
+    # Create weight mapping from expected format to actual model format
+    mapped_weights = {
+        'pre_rms_norm.weight': weights['ln1.weight'],
+        'causal_multi_head_attention.q_proj.weight': weights['attn.q_proj.weight'],
+        'causal_multi_head_attention.k_proj.weight': weights['attn.k_proj.weight'],
+        'causal_multi_head_attention.v_proj.weight': weights['attn.v_proj.weight'],
+        'causal_multi_head_attention.o_proj.weight': weights['attn.output_proj.weight'],
+        'swiglu_ffn.gate.weight': weights['ffn.w1.weight'],
+        'swiglu_ffn.signal.weight': weights['ffn.w3.weight'],
+        'swiglu_ffn.down_proj.weight': weights['ffn.w2.weight'],
+        'post_rms_norm.weight': weights['ln2.weight']
+    }
+    
+    # Load the mapped weights (strict=False to ignore RoPE cached tensors)
+    transformer_block.load_state_dict(mapped_weights, strict=False)
+    
+    # Generate token positions for RoPE
+    batch_size, seq_len, _ = in_features.shape
+    token_positions = torch.arange(seq_len).unsqueeze(0).expand(batch_size, -1)
+    
+    return transformer_block(in_features, token_positions)
 
 
 def run_transformer_lm(
@@ -468,7 +521,7 @@ def run_softmax(in_features: Float[Tensor, " ..."], dim: int) -> Float[Tensor, "
         Float[Tensor, "..."]: Tensor of with the same shape as `in_features` with the output of
         softmax normalizing the specified `dim`.
     """
-    raise NotImplementedError
+    return softmax(in_features,dim)
 
 
 def run_cross_entropy(inputs: Float[Tensor, " batch_size vocab_size"], targets: Int[Tensor, " batch_size"]) -> Float[Tensor, ""]:
