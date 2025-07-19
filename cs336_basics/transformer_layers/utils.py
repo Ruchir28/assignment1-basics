@@ -23,3 +23,26 @@ def scaled_dot_product_attention(q: torch.Tensor, k: torch.Tensor, v: torch.Tens
 
     return torch.matmul(attention_weights, v)
 
+def cross_entropy(inputs: torch.Tensor, targets: torch.Tensor):
+    # inputs : (batch_size, vocab_size)
+    # targets : (batch_size)
+
+    max_values = torch.max(inputs,dim=-1,keepdim=True).values #(batch_size, 1)
+
+    normalized_inputs = inputs - max_values
+    
+    exp_x = torch.exp(normalized_inputs) # (batch_size,vocab_size)
+    
+    exp_x_sum = torch.sum(exp_x,dim=-1) #(batch_size)
+    
+    predicted_prob = torch.gather(normalized_inputs,dim=-1,index=targets.unsqueeze(-1)).squeeze(1) #(batch_size)
+
+    # cross entrop loss : -log(e^(prob(i)/sum[(e^prob(i=1 to i=len))]))
+    # which is - (log(e^(prob(i))) - log(sum[(e^prob(i=1 to i=len))]))
+    # i.e - (prob(i) - log(sum[(e^prob(i=1 to i=len))]))
+    
+    loss = - (predicted_prob - torch.log(exp_x_sum)) #(batch_size)
+    
+    return loss.mean() 
+    
+    

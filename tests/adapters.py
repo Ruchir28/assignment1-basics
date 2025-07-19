@@ -8,6 +8,8 @@ from jaxtyping import Float, Int
 import numpy.typing as npt
 import torch
 
+from torch import Tensor
+
 from cs336_basics.bpe_tokenizer.bpe import BPETokenizer
 from cs336_basics.transformer_layers.CausalMultiHeadAttention import CausalMultiHeadAttention
 from cs336_basics.transformer_layers.Linear import Linear
@@ -15,9 +17,9 @@ from cs336_basics.transformer_layers.Embedding import Embedding
 from cs336_basics.transformer_layers.RmsNorm import RMSNorm
 from cs336_basics.transformer_layers.SwigluFFN import SwigluFFN
 from cs336_basics.transformer_layers.RoPE import RoPE
-from cs336_basics.transformer_layers.utils import scaled_dot_product_attention, softmax
+from cs336_basics.transformer_layers.utils import cross_entropy, scaled_dot_product_attention, softmax
 from cs336_basics.transformer_layers.Transformer import TransFormer
-
+from cs336_basics.optimizers.AdamW import AdamW
 
 def run_linear(
     d_in: int,
@@ -537,7 +539,8 @@ def run_cross_entropy(inputs: Float[Tensor, " batch_size vocab_size"], targets: 
     Returns:
         Float[Tensor, ""]: The average cross-entropy loss across examples.
     """
-    raise NotImplementedError
+    cross_entropy_loss = cross_entropy(inputs, targets)
+    return cross_entropy_loss
 
 
 def run_gradient_clipping(parameters: Iterable[torch.nn.Parameter], max_l2_norm: float) -> None:
@@ -556,7 +559,7 @@ def get_adamw_cls() -> type[torch.optim.Optimizer]:
     """
     Returns a torch.optim.Optimizer that implements AdamW.
     """
-    raise NotImplementedError
+    return AdamW
 
 
 def run_get_lr_cosine_schedule(
