@@ -124,7 +124,61 @@ def load_checkpoint(src: str | os.PathLike | BinaryIO | IO[bytes],
     optimizer.load_state_dict(checkpoint['optimizer'])
     
     return checkpoint['iteration']
+
+
+def generate_sequence(
+    model: torch.nn.Module,
+    sequence: torch.Tensor,  
+    max_generated_length: int,
+    temperature: float = 1.0,
+    top_p: float = 0.9,
+):
+    # sequence: (B, S) tensor of input token indices
+    model.eval()
+    generated_seq = sequence
+    for _ in range(max_generated_length):
+        # Get logits for the last token
+        logits = model(generated_seq)  # (B, S, vocab_size)
+        last_logits = logits[:, -1, :] / temperature  # (B, vocab_size)
+
+        probs = torch.softmax(last_logits, dim=-1)  # (B, vocab_size)
+
+        if top_p < 1.0:
+            sorted_probs, sorted_indices = torch.sort(probs, descending=True, dim=-1)  # (B, vocab_size)
+            cumulative_probs = torch.cumsum(sorted_probs, dim=-1)
+            # Build mask of tokens to keep
+            mask = cumulative_probs <= top_p
+            mask[:, 0] = True  # always include top token
+            filtered_probs = sorted_probs * mask
+            filtered_probs = filtered_probs / filtered_probs.sum(dim=-1, keepdim=True)
+            # Sample in sorted space
+            sampled_pos = torch.multinomial(filtered_probs, num_samples=1)  # (B, 1)
+            # Map back to original indices
+            sampled_token = sorted_indices.gather(dim=-1, index=sampled_pos)  # (B, 1)
+        else:
+            sampled_token = torch.multinomial(probs, num_samples=1)  # (B, 1)
+
+        generated_seq = torch.cat([generated_seq, sampled_token], dim=1)  # (B, S+1)
+
+    return generated_seq
+
     
+class SequenceDataset(torch.utils.data.Dataset):
+    def __init__(self,data: npt.NDArray, context_length: int):
+        self.data = data
+        self.context_length = context_length
+        self.num_sequences = len(data) - context_length
+
+    def __len__(self): 
+        return self.num_sequences
     
+    def __getitem__(self, idx: int):
+        if idx < 0 or idx >= self.num_sequences:
+            raise IndexError("Index out of bounds")
         
+        input_seq = torch.tensor(self.data[idx : idx + self.context_length], dtype=torch.long)
+        output_seq = torch.tensor(self.data[idx + 1 : idx + self.context_length + 1], dtype=torch.long)
+
+        return input_seq, output_seq
+    
     

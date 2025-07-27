@@ -20,6 +20,7 @@ from cs336_basics.transformer_layers.RoPE import RoPE
 from cs336_basics.transformer_layers.utils import cross_entropy, data_loader, gradient_clipping, learning_rate_scheduler, load_checkpoint, save_checkpoint, scaled_dot_product_attention, softmax
 from cs336_basics.transformer_layers.Transformer import TransFormer
 from cs336_basics.optimizers.AdamW import AdamW
+from cs336_basics.TransFormerLM import TransformerLM
 
 def run_linear(
     d_in: int,
@@ -440,7 +441,35 @@ def run_transformer_lm(
         Float[Tensor, "batch_size sequence_length vocab_size"]: Tensor with the predicted unnormalized
         next-word distribution for each token.
     """
-    raise NotImplementedError
+        
+    # Map layer weights from the reference format to our model's format
+    layer_weights_dict = {}
+    for layer_i in range(num_layers):
+        layer_weights_dict.update({
+            f'blocks.{layer_i}.pre_rms_norm.weight': weights[f'layers.{layer_i}.ln1.weight'],
+            f'blocks.{layer_i}.causal_multi_head_attention.q_proj.weight': weights[f'layers.{layer_i}.attn.q_proj.weight'],
+            f'blocks.{layer_i}.causal_multi_head_attention.k_proj.weight': weights[f'layers.{layer_i}.attn.k_proj.weight'],
+            f'blocks.{layer_i}.causal_multi_head_attention.v_proj.weight': weights[f'layers.{layer_i}.attn.v_proj.weight'],
+            f'blocks.{layer_i}.causal_multi_head_attention.o_proj.weight': weights[f'layers.{layer_i}.attn.output_proj.weight'],
+            # Map FFN weights
+            f'blocks.{layer_i}.swiglu_ffn.gate.weight': weights[f'layers.{layer_i}.ffn.w1.weight'],
+            f'blocks.{layer_i}.swiglu_ffn.signal.weight': weights[f'layers.{layer_i}.ffn.w3.weight'],
+            f'blocks.{layer_i}.swiglu_ffn.down_proj.weight': weights[f'layers.{layer_i}.ffn.w2.weight'],
+            f'blocks.{layer_i}.post_rms_norm.weight': weights[f'layers.{layer_i}.ln2.weight']
+        })
+    
+    # Create complete weight mapping including embeddings and final layers
+    mapped_weights = {
+        'token_embeddings.embedding': weights['token_embeddings.weight'],
+        'ln_final.weight': weights['ln_final.weight'],
+        'lm_head.weight': weights['lm_head.weight']
+    }
+    mapped_weights.update(layer_weights_dict)
+    
+    transformer_lm = TransformerLM(vocab_size, context_length, d_model, num_layers, num_heads, d_ff, rope_theta)
+    transformer_lm.load_state_dict(mapped_weights, strict=False)
+    
+    return transformer_lm(in_indices)   
 
 
 def run_rmsnorm(
