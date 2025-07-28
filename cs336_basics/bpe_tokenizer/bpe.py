@@ -247,6 +247,7 @@ class BPETokenizer:
         vocab: Dict[int, bytes],
         merges: List[Tuple[bytes, bytes]],
         special_tokens: Optional[List[str]] = None,
+        split_special_token: str = "<|endoftext|>"
     ):
         """
         Initializes the tokenizer with a vocabulary and merge rules.
@@ -259,6 +260,7 @@ class BPETokenizer:
         self.special_token_map = {token: self.token_to_ids.get(token.encode("utf-8"), 256 + i) for i, token in enumerate(self.special_tokens)}
         self.inverse_special_token_map = {v: k for k, v in self.special_token_map.items()}
         self.pre_tok_pattern = re.compile(PAT)
+        self.split_special_token = split_special_token
         
 
     @classmethod
@@ -274,15 +276,14 @@ class BPETokenizer:
         vocab = {}
         with open(vocab_filepath,"r",encoding="utf-8") as vf:
             inverted_vocab = json.load(vf)
-            vocab = {int(v): k.encode("utf-8") for k, v in inverted_vocab.items()}
+            vocab = {int(v): bytes.fromhex(k) for k, v in inverted_vocab.items()}
 
         special_tokens = special_tokens or []
         merges = []
-        with open(merges_filepath,"r",encoding="utf-8") as mf:
-            for line in mf:
-                if line.strip():
-                    left, right = line.strip().split()
-                    merges.append((left.encode("utf-8"), right.encode("utf-8")))
+        with open(merges_filepath, "r", encoding="utf-8") as f:
+            for line in f:
+                a_hex, b_hex = json.loads(line)
+                merges.append((bytes.fromhex(a_hex), bytes.fromhex(b_hex)))
         return cls(vocab, merges, special_tokens)
                 
             

@@ -15,19 +15,17 @@ def main():
     vocab, merges = train_bpe(input_path, vocab_size, special_tokens)
     print("Training complete.")
 
-    inverted_vocab = {token.decode("utf-8", "replace"): i for i, token in vocab.items()}
+    inverted_vocab = {token.hex(): i for i, token in vocab.items()}
     vocab_filepath = os.path.join(output_dir, "vocab.json")
     with open(vocab_filepath, "w", encoding="utf-8") as f:
         json.dump(inverted_vocab, f, ensure_ascii=False, indent=2)
     print(f"Vocabulary saved to {vocab_filepath}")
 
-    merges_filepath = os.path.join(output_dir, "merges.txt")
-    with open(merges_filepath, "w", encoding="utf-8") as f:
-        for p1, p2 in merges:
-            s1 = p1.decode('utf-8', 'replace')
-            s2 = p2.decode('utf-8', 'replace')
-            f.write(f"{s1} {s2}\n")
-    print(f"Merges saved to {merges_filepath}")
+    merges_jsonl = os.path.join(output_dir, "merges.jsonl")
+    with open(merges_jsonl, "w", encoding="utf-8") as f:
+        for p1, p2 in merges:            # p1, p2 are bytes objects
+            f.write(json.dumps([p1.hex(), p2.hex()]) + "\n")
+    print(f"Merges saved to {merges_jsonl}")
     
     special_tokens_filepath = os.path.join(output_dir, "special_tokens.json")
     with open(special_tokens_filepath, "w", encoding="utf-8") as f:

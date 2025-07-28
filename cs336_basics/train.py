@@ -17,8 +17,20 @@ def main():
     parser.add_argument("--d_ff", type=int, default=3072, help="Feed-forward dimension")
     parser.add_argument("--rope_theta", type=float, default=10000.0, help="RoPE theta value")
     parser.add_argument("--batch_size", type=int, default=32, help="Batch size for input sequences")
-    parser.add_argument("--train_data_path", type=str, help="Path to training numpy file with tokenized sequences")
-    parser.add_argument("--val_data_path", type=str, help="Path to validation numpy file with tokenized sequences")
+    # These are essential – make them mandatory so the script fails fast with a
+    # helpful message when they are omitted.
+    parser.add_argument(
+        "--train_data_path",
+        type=str,
+        required=True,
+        help="Path to mem-mapped numpy file containing training token ids (dtype=uint16)",
+    )
+    parser.add_argument(
+        "--val_data_path",
+        type=str,
+        required=True,
+        help="Path to mem-mapped numpy file containing validation token ids (dtype=uint16)",
+    )
     parser.add_argument("--checkpoint_path", type=str, default="checkpoint",help="Path to model checkpoint directory") 
     parser.add_argument("--total_epochs", type=int, default=10, help="Total number of training epochs")
     parser.add_argument("--max_l2_norm", type=float, default=1.0, help="Maximum L2 norm for gradient clipping")
@@ -42,10 +54,15 @@ def main():
         d_ff=args.d_ff,
         rope_theta=args.rope_theta
     )
-    
-    train_raw_data = np.memmap(args.train_data_path, dtype=np.int64, mode='r')
-    val_raw_data = np.memmap(args.val_data_path, dtype=np.int64, mode='r')
-    
+
+    if not os.path.exists(args.train_data_path):
+        raise FileNotFoundError(f"Training data file not found: {args.train_data_path}")
+    if not os.path.exists(args.val_data_path):
+        raise FileNotFoundError(f"Validation data file not found: {args.val_data_path}")
+
+    train_raw_data = np.memmap(args.train_data_path, dtype=np.uint16, mode="r")
+    val_raw_data = np.memmap(args.val_data_path, dtype=np.uint16, mode="r")
+
     dataset = SequenceDataset(train_raw_data, context_length=args.context_length)
     val_dataset = SequenceDataset(val_raw_data, context_length=args.context_length)
     
@@ -66,23 +83,26 @@ def main():
 
 
     
+    num_workers = min(4, os.cpu_count() or 1)
+    pin_memory = device == "cuda"
+
     train_loader = torch.utils.data.DataLoader(
         dataset,
         batch_size=args.batch_size,
         shuffle=True,
-        num_workers=4,
-        pin_memory=True,
-        drop_last=True
+        num_workers=num_workers,
+        pin_memory=pin_memory,
+        drop_last=True,
     )
-    
+
     val_loader = torch.utils.data.DataLoader(
-                        val_dataset,
-                        batch_size=args.batch_size,
-                        shuffle=False,
-                        num_workers=4,
-                        pin_memory=True,
-                        drop_last=False
-                    )
+        val_dataset,
+        batch_size=args.batch_size,
+        shuffle=False,
+        num_workers=num_workers,
+        pin_memory=pin_memory,
+        drop_last=False,
+    )
     
     steps_per_epoch = len(train_loader)
     total_iterations = args.total_epochs * steps_per_epoch
@@ -119,13 +139,17 @@ def main():
             logits = model(x)
             loss = cross_entropy(logits.view(-1, args.vocab_size), y.view(-1))
             loss.backward()
+
+            # Clip gradients before the update step
             gradient_clipping(model.parameters(), max_l2_norm=args.max_l2_norm)
-            optimizer.step()
-        
+
+            # Update learning-rate *before* the optimizer step so the current
+            # update uses the freshly-computed LR.
             lr = scheduler(iteration)
-        
             for param_group in optimizer.param_groups:
-                param_group['lr'] = lr
+                param_group["lr"] = lr
+
+            optimizer.step()
 
             if iteration % args.eval_interval == 0:
                 model.eval()
@@ -153,7 +177,7 @@ def main():
         
     
     os.makedirs(args.checkpoint_path, exist_ok=True)
-    final_checkpoint_path = os.path.join(args.checkpoint_path, f"checkpoint_{total_iterations}.pt")
+    final_checkpoint_path = os.path.join(args.checkpoint_path, f"checkpoint_{iteration}.pt")
     save_checkpoint(model, optimizer, iteration, final_checkpoint_path)
     print(f"Final model checkpoint saved at {final_checkpoint_path}")
 
