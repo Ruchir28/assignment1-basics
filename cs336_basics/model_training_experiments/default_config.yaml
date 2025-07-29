@@ -1,0 +1,29 @@
+model:
+  vocab_size: 10000
+  context_length: 256
+  d_model: 512
+  num_layers: 4
+  num_heads: 16
+  d_ff: 1344
+  rope_theta: 10000.0
+
+data:
+  batch_size: 32
+  train_data_path: "cs336_basics/model_training_experiments/tinystories_tokenizer/train_ids.npy"
+  val_data_path: "cs336_basics/model_training_experiments/tinystories_tokenizer/val_ids.npy"
+
+training:
+  total_epochs: 10
+  max_l2_norm: 1.0
+  lr: 1.0e-03
+  min_lr: 1.0e-06
+  warmup_steps: 100
+  eval_interval: 500
+  save_interval: 1000
+  log_interval: 10
+  checkpoint_path: "checkpoints/"
+  optimizer:
+    beta1: 0.9
+    beta2: 0.999
+    weight_decay: 0.01
+    eps: 1.0e-08
